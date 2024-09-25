@@ -1,0 +1,58 @@
+receivers:
+  otlp:
+    protocols:
+      grpc:
+      http:
+
+  # Ricevitore per le metriche JMX di Kafka e Zookeeper
+  jmx:
+    kafka:
+      endpoint: "kafka:1099"
+      target_system: "kafka"
+      collection_interval: 10s
+    zookeeper:
+      endpoint: "zookeeper:2181"
+      target_system: "zookeeper"
+      collection_interval: 10s
+
+processors:
+  batch:
+  memory_limiter:
+    check_interval: 1s
+    limit_mib: 1000
+    spike_limit_mib: 200
+
+exporters:
+  logging:
+    loglevel: debug
+  
+  prometheus:
+    endpoint: "0.0.0.0:8889"
+  
+  elasticsearch:
+    endpoints: ["http://elasticsearch:9200"]
+    index: "otel-data"
+
+  jaeger:
+    endpoint: "jaeger:14250"
+    tls:
+      insecure: true
+
+service:
+  pipelines:
+    traces:
+      receivers: [otlp]
+      processors: [memory_limiter, batch]
+      exporters: [logging, elasticsearch, jaeger]
+    
+    metrics:
+      receivers: [otlp, jmx/kafka, jmx/zookeeper]
+      processors: [memory_limiter, batch]
+      exporters: [logging, prometheus, elasticsearch]
+    
+    logs:
+      receivers: [otlp]
+      processors: [memory_limiter, batch]
+      exporters: [logging, elasticsearch]
+
+  extensions: [health_check, pprof, zpages]

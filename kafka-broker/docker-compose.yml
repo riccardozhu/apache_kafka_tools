@@ -10,9 +10,18 @@ services:
       KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092
       KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
       KAFKA_LOG4J_LOGGERS: "kafka.controller=INFO,kafka.producer.async.DefaultEventHandler=INFO,state.change.logger=INFO"
+      OTEL_EXPORTER_OTLP_ENDPOINT: "http://otel-collector:4317"
+      OTEL_SERVICE_NAME: "kafka"
     volumes:
       - ./volumes/data:/var/lib/kafka/data
       - ./volumes/logs:/var/lib/kafka/logs
+      - ./opentelemetry-javaagent.jar:/opentelemetry-javaagent.jar
+    command:
+      - sh
+      - -c
+      - |
+        java -javaagent:/opentelemetry-javaagent.jar \
+             -jar /usr/bin/kafka-server-start /etc/kafka/server.properties
     extra_hosts:
       - "kafka:10.0.2.15"
     healthcheck:
@@ -72,3 +81,8 @@ services:
 secrets:
   kafka_secrets:
     file: ./kafka_secrets.yml
+
+networks:
+  default:
+    external:
+      name: kafka_network

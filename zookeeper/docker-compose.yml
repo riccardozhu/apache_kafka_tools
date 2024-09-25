@@ -11,9 +11,18 @@ services:
       ZOOKEEPER_TICK_TIME: 2000
       ZOOKEEPER_SUPER_USER: /run/secrets/ZOOKEEPER_SUPER_USER
       ZOOKEEPER_SUPER_PASSWORD: /run/secrets/ZOOKEEPER_SUPER_PASSWORD
+      OTEL_EXPORTER_OTLP_ENDPOINT: "http://otel-collector:4317"
+      OTEL_SERVICE_NAME: "zookeeper"
     volumes:
       - ./volumes/data:/var/lib/zookeeper/data
       - ./volumes/log:/var/lib/zookeeper/log
+      - ./opentelemetry-javaagent.jar:/opentelemetry-javaagent.jar
+    command: 
+      - sh
+      - -c
+      - |
+        java -javaagent:/opentelemetry-javaagent.jar \
+             -jar /usr/bin/zookeeper-server-start /etc/kafka/zookeeper.properties
     healthcheck:
       test: ["CMD", "nc", "-z", "localhost", "2181"]
       interval: 30s
@@ -70,3 +79,4 @@ services:
 secrets:
   zookeeper_secrets:
     file: ./zookeeper_secrets.yml
+

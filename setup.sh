@@ -6,3 +6,4 @@ mkdir monitoring
 mkdir security
 mkdir backup
 mkdir elk
+mkdir otel-collector
