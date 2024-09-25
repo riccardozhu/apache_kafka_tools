@@ -1,0 +1,161 @@
+kafka-infrastructure/
+│
+├── zookeeper/
+│   ├── docker-compose.yml
+│   └── jmx-exporter-config.yml
+│
+├── kafka-broker/
+│   ├── docker-compose.yml
+│   └── jmx-exporter-config.yml
+│
+├── monitoring/
+│   ├── docker-compose.yml
+│   ├── prometheus/
+│   │   └── prometheus.yml
+│   └── grafana/
+│       └── datasources.yml
+│
+├── management/
+│   └── docker-compose.yml
+│
+├── security/
+│   └── docker-compose.yml
+│
+└── backup/
+    └── docker-compose.yml
+
+# Contenuto di zookeeper/docker-compose.yml
+version: '3'
+services:
+  zookeeper:
+    image: confluentinc/cp-zookeeper:latest
+    ports:
+      - "2181:2181"
+      - "2888:2888"
+      - "3888:3888"
+    environment:
+      ZOOKEEPER_CLIENT_PORT: 2181
+      ZOOKEEPER_TICK_TIME: 2000
+      ZOOKEEPER_SERVER_ID: 1  # Cambia per ogni nodo ZooKeeper
+      ZOOKEEPER_SERVERS: zookeeper1:2888:3888;zookeeper2:2888:3888;zookeeper3:2888:3888
+    volumes:
+      - /var/lib/zookeeper/data:/var/lib/zookeeper/data
+      - /var/lib/zookeeper/log:/var/lib/zookeeper/log
+
+  jmx-exporter:
+    image: sscaling/jmx-prometheus-exporter
+    ports:
+      - "9308:9308"
+    volumes:
+      - ./jmx-exporter-config.yml:/etc/jmx_exporter/config.yml
+
+# Contenuto di kafka-broker/docker-compose.yml
+version: '3'
+services:
+  kafka:
+    image: confluentinc/cp-kafka:latest
+    ports:
+      - "9092:9092"
+      - "9093:9093"
+    environment:
+      KAFKA_BROKER_ID: 1  # Cambia per ogni broker
+      KAFKA_ZOOKEEPER_CONNECT: zookeeper1:2181,zookeeper2:2181,zookeeper3:2181
+      KAFKA_ADVERTISED_LISTENERS: SASL_SSL://kafka1:9093,PLAINTEXT://kafka1:9092
+      KAFKA_SSL_KEYSTORE_FILENAME: kafka.server.keystore.jks
+      KAFKA_SSL_KEYSTORE_CREDENTIALS: keystore_creds
+      KAFKA_SSL_KEY_CREDENTIALS: key_creds
+      KAFKA_SSL_TRUSTSTORE_FILENAME: kafka.server.truststore.jks
+      KAFKA_SSL_TRUSTSTORE_CREDENTIALS: truststore_creds
+      KAFKA_SASL_ENABLED_MECHANISMS: PLAIN
+      KAFKA_SASL_MECHANISM_INTER_BROKER_PROTOCOL: PLAIN
+    volumes:
+      - /var/lib/kafka/data:/var/lib/kafka/data
+      - /etc/kafka/secrets:/etc/kafka/secrets
+
+  jmx-exporter:
+    image: sscaling/jmx-prometheus-exporter
+    ports:
+      - "9308:9308"
+    volumes:
+      - ./jmx-exporter-config.yml:/etc/jmx_exporter/config.yml
+
+# Contenuto di monitoring/docker-compose.yml
+version: '3'
+services:
+  prometheus:
+    image: prom/prometheus:latest
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml
+      - prometheus_data:/prometheus
+
+  grafana:
+    image: grafana/grafana:latest
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./grafana/datasources.yml:/etc/grafana/provisioning/datasources/datasources.yml
+      - grafana_data:/var/lib/grafana
+
+volumes:
+  prometheus_data:
+  grafana_data:
+
+# Contenuto di management/docker-compose.yml
+version: '3'
+services:
+  kafka-manager:
+    image: hlebalbau/kafka-manager:latest
+    ports:
+      - "9000:9000"
+    environment:
+      ZK_HOSTS: "zookeeper1:2181,zookeeper2:2181,zookeeper3:2181"
+      APPLICATION_SECRET: "your-secret-here"
+
+# Contenuto di security/docker-compose.yml
+version: '3'
+services:
+  vault:
+    image: vault:latest
+    ports:
+      - "8200:8200"
+    environment:
+      VAULT_DEV_ROOT_TOKEN_ID: "your-root-token-here"
+    cap_add:
+      - IPC_LOCK
+    volumes:
+      - vault_data:/vault/data
+
+  elk:
+    image: sebp/elk:latest
+    ports:
+      - "5601:5601"
+      - "9200:9200"
+      - "5044:5044"
+    volumes:
+      - elk_data:/var/lib/elasticsearch
+
+volumes:
+  vault_data:
+  elk_data:
+
+# Contenuto di backup/docker-compose.yml
+version: '3'
+services:
+  restic:
+    image: restic/restic:latest
+    volumes:
+      - /path/to/backup/source:/data
+      - /path/to/backup/config:/restic
+    environment:
+      RESTIC_PASSWORD: "your-restic-password"
+    command: ["backup", "/data"]
+
+  syncthing:
+    image: syncthing/syncthing:latest
+    ports:
+      - "8384:8384"
+      - "22000:22000"
+    volumes:
+      - /path/to/sync/data:/var/syncthing
