@@ -2,11 +2,13 @@ kafka-infrastructure/
 │
 ├── zookeeper/
 │   ├── docker-compose.yml
-│   └── jmx-exporter-config.yml
+│   ├── jmx-exporter-config.yml
+│   └── filebeat.yml
 │
 ├── kafka-broker/
 │   ├── docker-compose.yml
-│   └── jmx-exporter-config.yml
+│   ├── jmx-exporter-config.yml
+│   └── filebeat.yml
 │
 ├── monitoring/
 │   ├── docker-compose.yml
@@ -15,8 +17,12 @@ kafka-infrastructure/
 │   └── grafana/
 │       └── datasources.yml
 │
-├── management/
-│   └── docker-compose.yml
+├── elk/
+│   ├── docker-compose.yml
+│   ├── logstash/
+│   │   └── pipeline.conf
+│   └── elasticsearch/
+│       └── elasticsearch.yml
 │
 ├── security/
 │   └── docker-compose.yml
@@ -31,13 +37,9 @@ services:
     image: confluentinc/cp-zookeeper:latest
     ports:
       - "2181:2181"
-      - "2888:2888"
-      - "3888:3888"
     environment:
       ZOOKEEPER_CLIENT_PORT: 2181
       ZOOKEEPER_TICK_TIME: 2000
-      ZOOKEEPER_SERVER_ID: 1  # Cambia per ogni nodo ZooKeeper
-      ZOOKEEPER_SERVERS: zookeeper1:2888:3888;zookeeper2:2888:3888;zookeeper3:2888:3888
     volumes:
       - /var/lib/zookeeper/data:/var/lib/zookeeper/data
       - /var/lib/zookeeper/log:/var/lib/zookeeper/log
@@ -49,6 +51,13 @@ services:
     volumes:
       - ./jmx-exporter-config.yml:/etc/jmx_exporter/config.yml
 
+  filebeat:
+    image: docker.elastic.co/beats/filebeat:7.15.0
+    volumes:
+      - ./filebeat.yml:/usr/share/filebeat/filebeat.yml:ro
+      - /var/lib/zookeeper/log:/var/lib/zookeeper/log:ro
+    command: filebeat -e -strict.perms=false
+
 # Contenuto di kafka-broker/docker-compose.yml
 version: '3'
 services:
@@ -56,21 +65,13 @@ services:
     image: confluentinc/cp-kafka:latest
     ports:
       - "9092:9092"
-      - "9093:9093"
     environment:
-      KAFKA_BROKER_ID: 1  # Cambia per ogni broker
-      KAFKA_ZOOKEEPER_CONNECT: zookeeper1:2181,zookeeper2:2181,zookeeper3:2181
-      KAFKA_ADVERTISED_LISTENERS: SASL_SSL://kafka1:9093,PLAINTEXT://kafka1:9092
-      KAFKA_SSL_KEYSTORE_FILENAME: kafka.server.keystore.jks
-      KAFKA_SSL_KEYSTORE_CREDENTIALS: keystore_creds
-      KAFKA_SSL_KEY_CREDENTIALS: key_creds
-      KAFKA_SSL_TRUSTSTORE_FILENAME: kafka.server.truststore.jks
-      KAFKA_SSL_TRUSTSTORE_CREDENTIALS: truststore_creds
-      KAFKA_SASL_ENABLED_MECHANISMS: PLAIN
-      KAFKA_SASL_MECHANISM_INTER_BROKER_PROTOCOL: PLAIN
+      KAFKA_BROKER_ID: 1
+      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
     volumes:
       - /var/lib/kafka/data:/var/lib/kafka/data
-      - /etc/kafka/secrets:/etc/kafka/secrets
 
   jmx-exporter:
     image: sscaling/jmx-prometheus-exporter
@@ -78,6 +79,13 @@ services:
       - "9308:9308"
     volumes:
       - ./jmx-exporter-config.yml:/etc/jmx_exporter/config.yml
+
+  filebeat:
+    image: docker.elastic.co/beats/filebeat:7.15.0
+    volumes:
+      - ./filebeat.yml:/usr/share/filebeat/filebeat.yml:ro
+      - /var/lib/kafka/logs:/var/lib/kafka/logs:ro
+    command: filebeat -e -strict.perms=false
 
 # Contenuto di monitoring/docker-compose.yml
 version: '3'
@@ -102,16 +110,40 @@ volumes:
   prometheus_data:
   grafana_data:
 
-# Contenuto di management/docker-compose.yml
+# Contenuto di elk/docker-compose.yml
 version: '3'
 services:
-  kafka-manager:
-    image: hlebalbau/kafka-manager:latest
+  elasticsearch:
+    image: docker.elastic.co/elasticsearch/elasticsearch:7.15.0
     ports:
-      - "9000:9000"
+      - "9200:9200"
+      - "9300:9300"
     environment:
-      ZK_HOSTS: "zookeeper1:2181,zookeeper2:2181,zookeeper3:2181"
-      APPLICATION_SECRET: "your-secret-here"
+      - discovery.type=single-node
+    volumes:
+      - ./elasticsearch/elasticsearch.yml:/usr/share/elasticsearch/config/elasticsearch.yml
+      - elasticsearch_data:/usr/share/elasticsearch/data
+
+  logstash:
+    image: docker.elastic.co/logstash/logstash:7.15.0
+    ports:
+      - "5044:5044"
+    volumes:
+      - ./logstash/pipeline.conf:/usr/share/logstash/pipeline/logstash.conf
+    depends_on:
+      - elasticsearch
+
+  kibana:
+    image: docker.elastic.co/kibana/kibana:7.15.0
+    ports:
+      - "5601:5601"
+    environment:
+      ELASTICSEARCH_URL: http://elasticsearch:9200
+    depends_on:
+      - elasticsearch
+
+volumes:
+  elasticsearch_data:
 
 # Contenuto di security/docker-compose.yml
 version: '3'
@@ -121,41 +153,54 @@ services:
     ports:
       - "8200:8200"
     environment:
-      VAULT_DEV_ROOT_TOKEN_ID: "your-root-token-here"
+      VAULT_DEV_ROOT_TOKEN_ID: "myroot"
     cap_add:
       - IPC_LOCK
-    volumes:
-      - vault_data:/vault/data
-
-  elk:
-    image: sebp/elk:latest
-    ports:
-      - "5601:5601"
-      - "9200:9200"
-      - "5044:5044"
-    volumes:
-      - elk_data:/var/lib/elasticsearch
-
-volumes:
-  vault_data:
-  elk_data:
 
 # Contenuto di backup/docker-compose.yml
 version: '3'
 services:
-  restic:
-    image: restic/restic:latest
+  backup:
+    image: alpine:latest
     volumes:
-      - /path/to/backup/source:/data
-      - /path/to/backup/config:/restic
-    environment:
-      RESTIC_PASSWORD: "your-restic-password"
-    command: ["backup", "/data"]
+      - /path/to/backup:/backup
+    command: sh -c "echo 'Backup service placeholder'"
 
-  syncthing:
-    image: syncthing/syncthing:latest
-    ports:
-      - "8384:8384"
-      - "22000:22000"
-    volumes:
-      - /path/to/sync/data:/var/syncthing
+# Contenuto di zookeeper/filebeat.yml e kafka-broker/filebeat.yml
+filebeat.inputs:
+- type: log
+  enabled: true
+  paths:
+    - /var/lib/*/logs/*.log
+  fields:
+    kafka_topic: log-topic
+
+output.kafka:
+  hosts: ["kafka:9092"]
+  topic: '%{[fields.kafka_topic]}'
+
+# Contenuto di elk/logstash/pipeline.conf
+input {
+  kafka {
+    bootstrap_servers => "kafka:9092"
+    topics => ["log-topic"]
+    codec => json
+  }
+}
+
+filter {
+  grok {
+    match => { "message" => "%{TIMESTAMP_ISO8601:timestamp} %{LOGLEVEL:log_level} %{GREEDYDATA:log_message}" }
+  }
+}
+
+output {
+  elasticsearch {
+    hosts => ["elasticsearch:9200"]
+    index => "logs-%{+YYYY.MM.dd}"
+  }
+}
+
+# Contenuto di elk/elasticsearch/elasticsearch.yml
+cluster.name: "docker-cluster"
+network.host: 0.0.0.0

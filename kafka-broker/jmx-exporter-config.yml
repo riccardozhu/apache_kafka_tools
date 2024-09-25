@@ -1,0 +1,20 @@
+startDelaySeconds: 0
+ssl: false
+lowercaseOutputName: false
+lowercaseOutputLabelNames: false
+rules:
+  # Esempio di regole per Kafka
+  - pattern: kafka.server<type=(.+), name=(.+), topic=(.+), partition=(.+)><>Value
+    name: kafka_server_$1_$2
+    labels:
+      topic: "$3"
+      partition: "$4"
+  - pattern: kafka.server<type=(.+), name=(.+)><>Value
+    name: kafka_server_$1_$2
+  # Esempio di regole per ZooKeeper
+  - pattern: org.apache.ZooKeeperService<name0=ReplicatedServer_id(\d+)><>(.+)
+    name: zookeeper_$2
+  - pattern: org.apache.ZooKeeperService<name0=ReplicatedServer_id(\d+), name1=replica.(\d+)><>(.+)
+    name: zookeeper_replica_$3
+    labels:
+      replicaId: "$2"

@@ -1,0 +1,72 @@
+version: '3.8'
+services:
+  zookeeper:
+    image: confluentinc/cp-zookeeper:latest
+    ports:
+      - "2181:2181"
+    secrets:
+      - zookeeper_secrets
+    environment:
+      ZOOKEEPER_CLIENT_PORT: 2181
+      ZOOKEEPER_TICK_TIME: 2000
+      ZOOKEEPER_SUPER_USER: /run/secrets/ZOOKEEPER_SUPER_USER
+      ZOOKEEPER_SUPER_PASSWORD: /run/secrets/ZOOKEEPER_SUPER_PASSWORD
+    volumes:
+      - ./volumes/data:/var/lib/zookeeper/data
+      - ./volumes/log:/var/lib/zookeeper/log
+    healthcheck:
+      test: ["CMD", "nc", "-z", "localhost", "2181"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 512M
+    labels:
+      - "com.example.service=zookeeper"
+    network_mode: "host"
+
+  jmx-exporter:
+    image: sscaling/jmx-prometheus-exporter
+    ports:
+      - "9308:9308"
+    volumes:
+      - ./jmx-exporter-config.yml:/etc/jmx_exporter/config.yml:ro
+    healthcheck:
+      test: ["CMD", "nc", "-z", "localhost", "9308"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    deploy:
+      resources:
+        limits:
+          cpus: '0.2'
+          memory: 256M
+    labels:
+      - "com.example.service=jmx-exporter"
+    network_mode: "host"
+
+  filebeat:
+    image: docker.elastic.co/beats/filebeat:7.15.0
+    volumes:
+      - ./filebeat.yml:/usr/share/filebeat/filebeat.yml:ro
+      - ./volumes/log:/var/lib/zookeeper/log:ro
+    command: filebeat -e -strict.perms=false
+    healthcheck:
+      test: ["CMD", "filebeat", "test", "config"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    deploy:
+      resources:
+        limits:
+          cpus: '0.2'
+          memory: 256M
+    labels:
+      - "com.example.service=filebeat"
+
+secrets:
+  zookeeper_secrets:
+    file: ./zookeeper_secrets.yml

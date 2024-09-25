@@ -1,0 +1,26 @@
+filebeat.inputs:
+- type: log
+  enabled: true
+  paths:
+    - /var/log/kafka/*.log
+  fields:
+    type: kafka
+
+- type: log
+  enabled: true
+  paths:
+    - /var/log/zookeeper/*.log
+  fields:
+    type: zookeeper
+
+output.kafka:
+  hosts: ["kafka1:9092", "kafka2:9092", "kafka3:9092"]
+  topic: 'kafka-logs'
+  when.contains:
+    fields.type: 'kafka'
+
+output.kafka:
+  hosts: ["kafka1:9092", "kafka2:9092", "kafka3:9092"]
+  topic: 'zookeeper-logs'
+  when.contains:
+    fields.type: 'zookeeper'

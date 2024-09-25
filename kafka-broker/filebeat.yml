@@ -1,0 +1,11 @@
+filebeat.inputs:
+- type: log
+  enabled: true
+  paths:
+    - /var/lib/*/logs/*.log
+  fields:
+    kafka_topic: log-topic
+
+output.kafka:
+  hosts: ["kafka:9092"]
+  topic: '%{[fields.kafka_topic]}'

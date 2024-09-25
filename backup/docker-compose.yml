@@ -1,0 +1,18 @@
+version: '3'
+services:
+  restic:
+    image: restic/restic:latest
+    volumes:
+      - /path/to/backup/source:/data
+      - /path/to/backup/config:/restic
+    environment:
+      RESTIC_PASSWORD: "your-restic-password"
+    command: ["backup", "/data"]
+
+  syncthing:
+    image: syncthing/syncthing:latest
+    ports:
+      - "8384:8384"
+      - "22000:22000"
+    volumes:
+      - /path/to/sync/data:/var/syncthing
