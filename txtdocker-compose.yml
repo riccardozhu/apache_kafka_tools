@@ -1,0 +1,230 @@
+services:
+  zookeeper:
+    image: confluentinc/cp-zookeeper:latest
+    ports:
+      - "2181:2181"
+    secrets:
+      - zookeeper_secrets
+    environment:
+      ZOOKEEPER_CLIENT_PORT: 2181
+      ZOOKEEPER_TICK_TIME: 2000
+      ZOOKEEPER_SUPER_USER: /run/secrets/ZOOKEEPER_SUPER_USER
+      ZOOKEEPER_SUPER_PASSWORD: /run/secrets/ZOOKEEPER_SUPER_PASSWORD
+      OTEL_EXPORTER_OTLP_ENDPOINT: "http://otel-collector:4317"
+      OTEL_SERVICE_NAME: "zookeeper"
+    volumes:
+      - ./zookeeper/volumes/data:/var/lib/zookeeper/data
+      - ./zookeeper/volumes/log:/var/lib/zookeeper/log
+      - ./opentelemetry-javaagent.jar:/opentelemetry-javaagent.jar
+    command: 
+      - sh
+      - -c
+      - |
+        java -javaagent:/opentelemetry-javaagent.jar \
+             -jar /usr/bin/zookeeper-server-start /etc/kafka/zookeeper.properties
+    healthcheck:
+      test: ["CMD", "nc", "-z", "localhost", "2181"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 512M
+    labels:
+      - "com.example.service=zookeeper"
+    network_mode: "host"
+
+  zookeeper-jmx-exporter:
+    image: sscaling/jmx-prometheus-exporter
+    ports:
+      - "9308:9308"
+    volumes:
+      - ./jmx-exporter-config.yml:/etc/jmx_exporter/config.yml:ro
+    depends_on:
+      - zookeeper
+    healthcheck:
+      test: ["CMD", "nc", "-z", "localhost", "9308"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    deploy:
+      resources:
+        limits:
+          cpus: '0.2'
+          memory: 256M
+    labels:
+      - "com.example.service=jmx-exporter"
+    network_mode: "host"
+
+  zookeeper-filebeat:
+    image: docker.elastic.co/beats/filebeat:7.15.0
+    volumes:
+      - ./zoekeeper/filebeat.yml:/usr/share/filebeat/filebeat.yml:ro
+      - ./zookeeper/volumes/log:/var/lib/zookeeper/log:ro
+    command: filebeat -e -strict.perms=false
+    healthcheck:
+      test: ["CMD", "filebeat", "test", "config"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    deploy:
+      resources:
+        limits:
+          cpus: '0.2'
+          memory: 256M
+    labels:
+      - "com.example.service=filebeat"
+
+zookeeper-secrets:
+  zookeeper_secrets:
+    file: ./zookeeper/zookeeper_secrets.yml
+
+  kafka-broker:
+    image: confluentinc/cp-kafka:latest
+    ports:
+      - "9092:9092"
+    environment:
+      KAFKA_BROKER_ID: 1
+      KAFKA_ZOOKEEPER_CONNECT: localhost:2181
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_LOG4J_LOGGERS: "kafka.controller=INFO,kafka.producer.async.DefaultEventHandler=INFO,state.change.logger=INFO"
+      OTEL_EXPORTER_OTLP_ENDPOINT: "http://otel-collector:4317"
+      OTEL_SERVICE_NAME: "kafka"
+    volumes:
+      - ./kafka-broker/volumes/data:/var/lib/kafka/data
+      - ./kafka-broker/volumes/logs:/var/lib/kafka/logs
+      #- ./kafka-broker/opentelemetry-javaagent.jar:/opentelemetry-javaagent.jar
+    command:
+      - sh
+      - -c
+      - |
+        java -javaagent:/opentelemetry-javaagent.jar \
+             -jar /usr/bin/kafka-server-start /etc/kafka/server.properties
+    depends_on:
+      - zookeeper
+    extra_hosts:
+      - "kafka:10.0.2.15"
+    healthcheck:
+      test: ["CMD", "kafka-topics", "--bootstrap-server", "localhost:9092", "--list"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    deploy:
+      resources:
+        limits:
+          cpus: '1'
+          memory: 1G
+    labels:
+      - "com.example.service=kafka"
+    network_mode: "host"
+
+
+  kafka-jmx-exporter:
+    image: sscaling/jmx-prometheus-exporter
+    ports:
+      - "9309:9309" # modificare
+    volumes:
+      - ./jmx-exporter-config.yml:/etc/jmx_exporter/config.yml:ro
+    depends_on:
+      - kafka-broker
+    healthcheck:
+      test: ["CMD", "nc", "-z", "localhost", "9308"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    deploy:
+      resources:
+        limits:
+          cpus: '0.2'
+          memory: 256M
+    labels:
+      - "com.example.service=jmx-exporter"
+    network_mode: "host"
+
+  kafka-filebeat:
+    image: docker.elastic.co/beats/filebeat:7.15.0
+    volumes:
+      - ./kafka-broker/filebeat.yml:/usr/share/filebeat/filebeat.yml:ro
+      - ./kafka-broker/volumes/logs:/var/lib/kafka/logs:ro
+    command: filebeat -e -strict.perms=false
+    healthcheck:
+      test: ["CMD-SHELL", "filebeat test config"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    deploy:
+      resources:
+        limits:
+          cpus: '0.2'
+          memory: 256M
+    labels:
+      - "com.example.service=filebeat"
+    
+kafka-broker-secrets:
+  kafka_secrets:
+    file: ./kafka-broker/kafka_secrets.yml
+
+  elasticsearch:
+    image: docker.elastic.co/elasticsearch/elasticsearch:7.15.0
+    environment:
+      - discovery.type=single-node
+      - "ES_JAVA_OPTS=-Xms512m -Xmx512m"
+      - xpack.security.enabled=false
+    ulimits:
+      memlock:
+        soft: -1
+        hard: -1
+      nofile:
+        soft: 65536
+        hard: 65536
+    cap_add:
+      - IPC_LOCK
+    volumes:
+      - ./elk/elasticsearch/elasticsearch_data:/usr/share/elasticsearch/data
+      - ./elk/elasticsearch/elasticsearch.yml:/usr/share/elasticsearch/config/elasticsearch.yml:ro
+    ports:
+      - "9200:9200"
+      - "9300:9300"
+    network_mode: "host"
+
+  logstash:
+    image: docker.elastic.co/logstash/logstash:7.15.0
+    volumes:
+      - ./elk/logstash/pipeline:/usr/share/logstash/pipeline
+      - ./elk/logstash/config/logstash.yml:/usr/share/logstash/config/logstash.yml:ro
+    environment:
+      LS_JAVA_OPTS: "-Xmx256m -Xms256m"
+    network_mode: "host"
+    depends_on:
+      - elasticsearch
+
+  kibana:
+    image: docker.elastic.co/kibana/kibana:7.15.0
+    ports:
+      - "5601:5601"
+    environment:
+      ELASTICSEARCH_URL: http://localhost:9200
+    depends_on:
+      - elasticsearch
+    network_mode: "host"
+
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:latest
+    command: ["--config=/etc/otel-collector-config.yaml"]
+    volumes:
+      - ./otel-collector/otel-collector-config.yml:/etc/otel-collector-config.yaml
+    ports:
+      - "4317:4317"   # OTLP gRPC receiver
+      - "4318:4318"   # OTLP HTTP receiver
+      - "8888:8888"   # Prometheus metrics exposed by the collector
+      - "8889:8889"   # Prometheus exporter metrics
+    environment:
+      - KAFKA_JMX_PORT=1099
+      - ZOOKEEPER_JMX_PORT=2181
+      - ELASTICSEARCH_HOST=elasticsearch
+      - ELASTICSEARCH_PORT=9200
+    network_mode: "host"
+

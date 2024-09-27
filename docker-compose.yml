@@ -1,0 +1,142 @@
+version: '3.8'
+
+services:
+  zookeeper:
+    image: confluentinc/cp-zookeeper:latest
+    ports:
+      - "${ZOOKEEPER_PORT}:2181"
+    environment:
+      ZOOKEEPER_CLIENT_PORT: 2181
+      ZOOKEEPER_TICK_TIME: 2000
+      OTEL_EXPORTER_OTLP_ENDPOINT: "http://otel-collector:4317"
+      OTEL_SERVICE_NAME: "zookeeper"
+    volumes:
+      - ${ZOOKEEPER_DATA_VOLUME}:/var/lib/zookeeper/data
+      - ${ZOOKEEPER_LOG_VOLUME}:/var/lib/zookeeper/log
+    healthcheck:
+      test: ["CMD-SHELL", "echo ruok | nc localhost 2181 | grep imok"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - kafka_network
+    secrets:
+      - zookeeper_secrets
+
+  zookeeper-filebeat:
+    image: docker.elastic.co/beats/filebeat:7.15.0
+    volumes:
+      - ${ZOOKEEPER_FILEBEAT_CONFIG}:/usr/share/filebeat/filebeat.yml:ro
+      - ${ZOOKEEPER_LOG_VOLUME}:/var/lib/zookeeper/log:ro
+    command: filebeat -e -strict.perms=false
+    depends_on:
+      - zookeeper
+    networks:
+      - kafka_network
+      - elk_network
+
+  kafka-broker:
+    image: confluentinc/cp-kafka:latest
+    ports:
+      - "${KAFKA_PORT}:9092"
+    environment:
+      KAFKA_BROKER_ID: 1
+      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka-broker:9092
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      OTEL_EXPORTER_OTLP_ENDPOINT: "http://otel-collector:4317"
+      OTEL_SERVICE_NAME: "kafka"
+    volumes:
+      - ${KAFKA_DATA_VOLUME}:/var/lib/kafka/data
+      - ${KAFKA_LOG_VOLUME}:/var/lib/kafka/logs
+    healthcheck:
+      test: ["CMD-SHELL", "kafka-topics --bootstrap-server localhost:9092 --list"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    depends_on:
+      - zookeeper
+    networks:
+      - kafka_network
+
+  kafka-filebeat:
+    image: docker.elastic.co/beats/filebeat:7.15.0
+    volumes:
+      - ${KAFKA_FILEBEAT_CONFIG}:/usr/share/filebeat/filebeat.yml:ro
+      - ${KAFKA_LOG_VOLUME}:/var/lib/kafka/logs:ro
+    command: filebeat -e -strict.perms=false
+    depends_on:
+      - kafka-broker
+    networks:
+      - kafka_network
+      - elk_network
+
+  elasticsearch:
+    image: docker.elastic.co/elasticsearch/elasticsearch:7.15.0
+    environment:
+      - discovery.type=single-node
+      - "ES_JAVA_OPTS=-Xms512m -Xmx512m"
+      - xpack.security.enabled=false
+    volumes:
+      - ${ELASTICSEARCH_DATA_VOLUME}:/usr/share/elasticsearch/data
+      - ${ELASTICSEARCH_CONFIG_VOLUME}:/usr/share/elasticsearch/config/elasticsearch.yml:ro
+    ports:
+      - "${ELASTICSEARCH_PORT}:9200"
+    healthcheck:
+      test: ["CMD-SHELL", "curl -s http://elasticsearch:9200 >/dev/null || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    networks:
+      - elk_network
+
+  logstash:
+    image: docker.elastic.co/logstash/logstash:7.15.0
+    volumes:
+      - ${LOGSTASH_PIPELINE_VOLUME}:/usr/share/logstash/pipeline
+      - ${LOGSTASH_CONFIG_VOLUME}:/usr/share/logstash/config/logstash.yml:ro
+    environment:
+      LS_JAVA_OPTS: "-Xmx256m -Xms256m"
+    command: ["logstash-plugin", "install", "logstash-filter-grok"]
+    depends_on:
+      - elasticsearch
+    networks:
+      - elk_network
+      - kafka_network
+
+  kibana:
+    image: docker.elastic.co/kibana/kibana:7.15.0
+    ports:
+      - "${KIBANA_PORT}:5601"
+    environment:
+      ELASTICSEARCH_HOSTS: http://elasticsearch:9200
+    depends_on:
+      - elasticsearch
+    networks:
+      - elk_network
+
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:latest
+    command: ["--config=/etc/otel-collector-config.yaml"]
+    volumes:
+      - ${OTEL_CONFIG_VOLUME}:/etc/otel-collector-config.yaml
+      - ${ZOOKEEPER_LOG_VOLUME}:/var/lib/zookeeper/log:ro
+    ports:
+      - "${OTEL_GRPC_PORT}:4317"
+      - "${OTEL_HTTP_PORT}:4318"
+      - "${OTEL_PROMETHEUS_PORT}:8889"
+    networks:
+      - kafka_network
+      - elk_network
+
+networks:
+  kafka_network:
+    driver: bridge
+  elk_network:
+    driver: bridge
+
+secrets:
+  zookeeper_secrets:
+    file: ./zookeeper/zookeeper_secrets.yml
+  kafka_secrets:
+    file: ./kafka-broker/kafka_secrets.yml

@@ -10,4 +10,10 @@ services:
       - "4318:4318"   # OTLP HTTP receiver
       - "8888:8888"   # Prometheus metrics exposed by the collector
       - "8889:8889"   # Prometheus exporter metrics
+    environment:
+      - KAFKA_JMX_PORT=1099
+      - ZOOKEEPER_JMX_PORT=2181
+      - ELASTICSEARCH_HOST=elasticsearch
+      - ELASTICSEARCH_PORT=9200
+    network_mode: "host"
 

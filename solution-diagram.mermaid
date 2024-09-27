@@ -1,0 +1,19 @@
+graph TD
+    subgraph Kafka Network
+        Z[Zookeeper]
+        K[Kafka Broker]
+        O[OpenTelemetry Collector]
+    end
+    subgraph ELK Network
+        E[Elasticsearch]
+        L[Logstash]
+        KB[Kibana]
+    end
+    Z --> K
+    K --> O
+    Z --> O
+    O --> L
+    L --> E
+    E --> KB
+    O --> E# Filebeat
+

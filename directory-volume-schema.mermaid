@@ -1,0 +1,33 @@
+graph TD
+    subgraph Project Root
+        ZK[zookeeper/]
+        KB[kafka-broker/]
+        ELK[elk/]
+        OT[otel-collector/]
+        DC[docker-compose.yml]
+        ENV[.env]
+        OJ[opentelemetry-javaagent.jar]
+    end
+    subgraph Zookeeper Volumes
+        ZK --> ZKD[volumes/data]
+        ZK --> ZKL[volumes/log]
+    end
+    subgraph Kafka Broker Volumes
+        KB --> KBD[volumes/data]
+        KB --> KBL[volumes/logs]
+    end
+    subgraph ELK
+        ELK --> ES[elasticsearch/]
+        ELK --> LS[logstash/]
+    end
+    subgraph Elasticsearch Volumes
+        ES --> ESD[elasticsearch_data]
+        ES --> ESC[elasticsearch.yml]
+    end
+    subgraph Logstash Config
+        LS --> LSP[pipeline/]
+        LS --> LSC[config/logstash.yml]
+    end
+    subgraph OpenTelemetry Config
+        OT --> OTC[otel-collector-config.yml]
+    end

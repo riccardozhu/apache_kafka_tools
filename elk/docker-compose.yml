@@ -4,15 +4,33 @@ services:
     image: docker.elastic.co/elasticsearch/elasticsearch:7.15.0
     environment:
       - discovery.type=single-node
-    ports:
-      - "9200:9200"
+      - "ES_JAVA_OPTS=-Xms512m -Xmx512m"
+      - xpack.security.enabled=false
+    ulimits:
+      memlock:
+        soft: -1
+        hard: -1
+      nofile:
+        soft: 65536
+        hard: 65536
+    cap_add:
+      - IPC_LOCK
     volumes:
       - ./elasticsearch/elasticsearch_data:/usr/share/elasticsearch/data
+      - ./elasticsearch/elasticsearch.yml:/usr/share/elasticsearch/config/elasticsearch.yml:ro
+    ports:
+      - "9200:9200"
+      - "9300:9300"
+    network_mode: "host"
 
   logstash:
     image: docker.elastic.co/logstash/logstash:7.15.0
     volumes:
       - ./logstash/pipeline:/usr/share/logstash/pipeline
+      - ./logstash/config/logstash.yml:/usr/share/logstash/config/logstash.yml:ro
+    environment:
+      LS_JAVA_OPTS: "-Xmx256m -Xms256m"
+    network_mode: "host"
     depends_on:
       - elasticsearch
 
@@ -21,8 +39,9 @@ services:
     ports:
       - "5601:5601"
     environment:
-      ELASTICSEARCH_URL: http://elasticsearch:9200
+      ELASTICSEARCH_URL: http://localhost:9200
     depends_on:
       - elasticsearch
+    network_mode: "host"
   
 
