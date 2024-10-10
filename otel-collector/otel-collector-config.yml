@@ -17,22 +17,23 @@ receivers:
         endpoint: 0.0.0.0:4318
 
   # Zookeeper log collection
+receivers:
   filelog:
-    include: [ /var/lib/zookeeper/log/*.log ]
+    include: ["/var/lib/zookeeper/log/*.log"]
     start_at: beginning
     operators:
       - type: regex_parser
         regex: '^(?P<timestamp>\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2},\d{3}) (?P<level>\w+)\s+(?P<message>.*)'
         timestamp:
-          parse_from: timestamp
-          layout: '%Y-%m-%d %H:%M:%S,%f'
+          parse_from: attributes.timestamp
+          layout: '2006-01-02 15:04:05,000'
 
 processors:
   batch:
 
 exporters:
-  logging:
-    loglevel: debug
+  debug:
+    verbosity: detailed
   otlp:
     endpoint: logstash:5044
     tls:

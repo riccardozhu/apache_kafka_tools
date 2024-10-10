@@ -14,10 +14,11 @@ services:
       - ${ZOOKEEPER_DATA_VOLUME}:/var/lib/zookeeper/data
       - ${ZOOKEEPER_LOG_VOLUME}:/var/lib/zookeeper/log
     healthcheck:
-      test: ["CMD-SHELL", "echo ruok | nc localhost 2181 | grep imok"]
+      test: echo srvr | nc localhost 2181 || exit 1
       interval: 10s
       timeout: 5s
       retries: 5
+      start_period: 10s
     networks:
       - kafka_network
     secrets:
@@ -50,12 +51,13 @@ services:
       - ${KAFKA_DATA_VOLUME}:/var/lib/kafka/data
       - ${KAFKA_LOG_VOLUME}:/var/lib/kafka/logs
     healthcheck:
-      test: ["CMD-SHELL", "kafka-topics --bootstrap-server localhost:9092 --list"]
+      test: ["CMD-SHELL", "kafka-topics --bootstrap-server kafka-broker:9092 --list"]
       interval: 30s
       timeout: 10s
       retries: 3
     depends_on:
-      - zookeeper
+      zookeeper:
+        condition: service_healthy
     networks:
       - kafka_network
 
@@ -97,9 +99,16 @@ services:
       - ${LOGSTASH_CONFIG_VOLUME}:/usr/share/logstash/config/logstash.yml:ro
     environment:
       LS_JAVA_OPTS: "-Xmx256m -Xms256m"
-    command: ["logstash-plugin", "install", "logstash-filter-grok"]
+    command: >
+      bash -c '
+        logstash-plugin install logstash-filter-grok &&
+        logstash
+      '
     depends_on:
-      - elasticsearch
+      elasticsearch:
+        condition: service_healthy
+      kafka-broker:
+        condition: service_healthy
     networks:
       - elk_network
       - kafka_network
@@ -111,7 +120,8 @@ services:
     environment:
       ELASTICSEARCH_HOSTS: http://elasticsearch:9200
     depends_on:
-      - elasticsearch
+      elasticsearch:
+        condition: service_healthy
     networks:
       - elk_network
 
